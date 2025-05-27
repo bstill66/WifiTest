@@ -26,6 +26,8 @@ import java.time.temporal.TemporalUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static java.time.ZonedDateTime.now;
 
@@ -54,37 +56,82 @@ public class WiFiTest {
 
     private static final String CONTENT_DIR = "TestContent";
 
-    private static int totalSize = 0;
-    private static int blockSize = 0;
+    private static Long totalSize = null;
+    private static Long blockSize = null;
     private static boolean uploadFlag = false;
-    private static String  tagLine = "Unspecified";
-    private static Duration randMin = Duration.ZERO;
 
-    private static void parseArgs(String[] args) {
+    private static Duration randMin = Duration.ZERO;
+    private static String gate = "XX";
+    private static String airport = "ATL";
+
+    private static long cvtBytes(final String val) throws ParseException {
+        final Pattern regex = Pattern.compile("([0-9]+)([BKMG])");
+
+        long numBytes = 0;
+
+        Matcher m = regex.matcher(val);
+        if (m.matches()) {
+            numBytes = Integer.parseInt(m.group(1));
+            char units = m.group(2).charAt(0);
+            switch (units) {
+                case 'B':
+                    numBytes = numBytes * 1;
+                    break;
+                case 'K':
+                    numBytes = numBytes * 1024;
+                    break;
+                case 'M':
+                    numBytes = numBytes * 1024 * 1024;
+                    break;
+                case 'G':
+                    numBytes = numBytes * 1024 * 1024 * 1024;
+                    break;
+                case 'P':
+                    numBytes = numBytes * 1024 * 1024 * 1024 * 1024;
+                    break;
+                default:
+                    throw new ParseException("Unrecognized units");
+            }
+        }
+
+        return numBytes;
+    }
+
+
+    public static void parseArgs(String[] args) {
+
         Options options = new Options();
 
         options.addOption("U",false,"Specify to Upload Data instead of Download");
 
-        Option xferSize = Option.builder("s")
+        Option xferSize = Option.builder("S")
                 .argName("totalSize")
                 .hasArg(true)
                 .desc("Total Size to transfer")
                 .build();
         options.addOption(xferSize);
 
-        Option blkSize = Option.builder("b")
+        Option blkSize = Option.builder("B")
                 .argName("blockSize")
                 .hasArg(true)
-                .desc("Block size in MB")
+                .desc("Block size ")
                 .build();
         options.addOption(blkSize);
 
-        Option tag = Option.builder("t")
-                .argName("tag")
+        Option gte = Option.builder("g")
+                .argName("gate")
                 .hasArg(true)
-                .required(true)
+                .required(false)
                 .build();
-        options.addOption(tag);
+        options.addOption(gte);
+
+        Option aport = Option.builder("a")
+                .argName("airport")
+                .hasArg(true)
+                .required(false)
+                .build();
+        options.addOption(aport);
+
 
         Option rnd = Option.builder("r")
                 .argName("randMin")
@@ -98,15 +145,31 @@ public class WiFiTest {
             CommandLine cmd = parser.parse(options, args);
 
             uploadFlag = cmd.hasOption("U");
-            totalSize = cmd.getParsedOptionValue("totalSize",2*1024);
-            blockSize = cmd.getParsedOptionValue("blockSize",1);
-            tagLine = cmd.getParsedOptionValue("t");
+            if (cmd.hasOption("S")) {
+                totalSize = cvtBytes(cmd.getOptionValue("S"));
+
+
+                if (cmd.hasOption("B")) {
+                    blockSize = cvtBytes(cmd.getOptionValue("B"));
+                }
+                else {
+                    blockSize = totalSize;
+                }
+            }
 
             if (cmd.hasOption("r")) {
                 String val = cmd.getOptionValue("r");
 
                 int v = Integer.parseInt(val);
                 randMin = Duration.ofMinutes(v);
+            }
+
+            if (cmd.hasOption("g")) {
+                gate = cmd.getParsedOptionValue("g");
+            }
+
+            if (cmd.hasOption("a")) {
+                airport = cmd.getParsedOptionValue("a");
             }
 
         } catch (ParseException e) {
@@ -162,11 +225,10 @@ public class WiFiTest {
 
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
 
-        String logFilename = String.format("LOG_%s.txt",
+        String logFilename = String.format("%s-%s_%s.txt",airport,gate,
                                     formatter.format(ZonedDateTime.now()));
 
         BufferedOutputStream bos = new BufferedOutputStream(new FileOutputStream(logFilename));
-        bos.write(tagLine.getBytes());
 
         return bos;
 
@@ -190,7 +252,7 @@ public class WiFiTest {
 
             if (uploadFlag) {
                 Upload  ulTest = new Upload(service,contentDir.getId());
-                ulTest.run(128,1*1024*1024);
+                ulTest.run(16,1*1024*1024);
             }
 
 
@@ -205,8 +267,10 @@ public class WiFiTest {
             if (randMin.compareTo(Duration.ZERO) != 0) {
                 total = dlTest.runRandom(randMin);
             }
-            else {
+            else if (totalSize != null) {
                 total = dlTest.run(totalSize,blockSize);
+            } else {
+                    total = dlTest.run();
             }
 
             Duration duration = Duration.between(start, ZonedDateTime.now());

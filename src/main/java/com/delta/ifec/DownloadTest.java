@@ -9,9 +9,7 @@ import java.io.IOException;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Random;
+import java.util.*;
 
 import static java.lang.Math.min;
 import static java.time.LocalDateTime.now;
@@ -20,7 +18,7 @@ import static java.time.LocalDateTime.now;
 public class DownloadTest {
 
     private Drive service = null;
-    private List<File>   drvFiles = null;
+    private List<File>   drvFiles = new ArrayList<>();
     private BufferedOutputStream logger = null;
 
 
@@ -33,7 +31,14 @@ public class DownloadTest {
         String qry = String.format("'%s' in parents",tmp);
 
         FileList top = service.files().list().setQ(qry).execute();
-        drvFiles = top.getFiles();
+        for (File f: top.getFiles()) {
+            File t = service.files().get(f.getId()).setFields("id,size,name").execute();
+            drvFiles.add(t);
+        }
+
+
+
+        Collections.sort(drvFiles, (p1, p2) -> Long.compare((Long)p1.get("size"), (Long)p2.get("size")));
 
     }
 
@@ -83,7 +88,37 @@ public class DownloadTest {
         return fsize;
     }
 
-    public long run(final int size,int blkSize) throws IOException {
+    private File findClosestFile(Long size) {
+        File bestFile = drvFiles.get(0);
+
+        Iterator<File> it = drvFiles.iterator();
+        while (it.hasNext() ) {
+            File file = it.next();
+            Long fs = (Long)file.get("size");
+            if (fs == size) return file;
+            if (fs > size) return bestFile;
+            bestFile = file;
+        }
+
+        return bestFile;
+    }
+
+    public long run(final long totalSize,final long blockSize) throws IOException {
+
+
+        long bytesRead = 0;
+
+        while (bytesRead < totalSize) {
+            long bytesToRead = min(totalSize - bytesRead,blockSize);
+            File f = findClosestFile(bytesToRead);
+
+            bytesRead += downloadFile(f);
+        }
+
+        return bytesRead;
+    }
+
+    public long run() throws IOException {
 
         boolean failed = false;
 
